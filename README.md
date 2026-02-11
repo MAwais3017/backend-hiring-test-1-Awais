@@ -1,70 +1,92 @@
-# TuringTech - Backend technical test (Intermediate)
+# Call Forwarding Demo – Backend Hiring Test
 
-This test is a part of our hiring process for [backend positions](https://www.turingtechnologies.org/careers). It should take you between 2 and 4 hours depending on your experience. We made this task in a way that you'll end up learing how IVRs and Twilio's API works. Working on this task will help you in your future projects.
+I rebuilt the classic “press 1 to forward, press 2 to leave a voicemail” flow using Fastify + TypeScript and Twilio’s Programmable Voice webhooks. The backend returns TwiML responses, stores the call history in a lightweight datastore, and exposes everything through a documented REST API.
 
-*Feel free to apply on our [Careers Page](https://www.turing-tech.org/careers?github=true) and email us at hr@turingtechnologies.org.*
+> 🎥 Loom walkthrough: https://www.loom.com/share/3f113e289d45466687b435a7e2aa1f85 
 
-## Summary
+## What happens when someone calls?
 
-The purpose of the test is to reproduce one small feature: __call forwarding__.
+1. The caller dials the Twilio number you configure for this project.  
+2. They hear a short IVR menu:
+   - Press **1** → the call is forwarded to whatever number you put in `TWILIO_FORWARD_TO_NUMBER`.  
+   - Press **2** → Twilio records a voicemail and sends me the recording URL.  
+3. Every call (including forwarding attempt outcomes and voicemail metadata) is logged to `data/calls.db` so we can build an activity feed later.
 
-Here is the story:
+All inbound webhook requests and API responses are described in Swagger (`/docs`), so you can try things out from the browser.
 
-Your company has one main number. This number is an [IVR](https://en.wikipedia.org/wiki/Interactive_voice_response):
-- If the caller presses `1`, call is forwarded to another phone number;
-- If the caller presses `2`, he is able to leave a voicemail.
+## Stack
 
-It's 9AM in the office and first calls are coming in!
+- Fastify 5 + TypeScript
+- Twilio Programmable Voice (TwiML webhooks)
+- `nedb-promises` (embedded datastore for call logs)
+- `@fastify/swagger` / `@fastify/swagger-ui` for OpenAPI docs
 
-## Instructions
+## Getting started
 
-### Code
+```bash
+npm install
+cp .env.example .env
+```
 
-In order to receive and route calls, you will be creating an interaction with [Twilio](https://twilio.com)'s API.
+Fill in the new `.env` file:
 
-Please keep the following points in mind:
+| Variable | What to drop in |
+| --- | --- |
+| `PORT` | Local server port (defaults to `3000`) |
+| `TWILIO_FORWARD_TO_NUMBER` | The real phone that should receive forwarded calls (E.164) |
+| `TWILIO_NUMBER` | Your purchased Twilio number (used as caller ID when we forward) |
+| `PUBLIC_BASE_URL` | The external URL Twilio hits (ngrok tunnel works great while developing) |
 
-- The focus of this test is the interaction between your backend server and Twilio - only inbound calls should be handled;
-- In order to test the interaction between Twilio and your local environment, you can use tunnels like [ngrok.com](https://ngrok.com);
-- Register a test account on [Twilio](https://twilio.com) - you'll be able to setup a new account and test phone number for free;
-- You can add all the models you need specially for Call object;
-- Your project must be available online. A simple Heroku Dyno should do the trick;
-- Make your code as clear as possible, it should be understandable at a first glance (comments are more than welcome);
-- You can dd tests in your submission, ONLY if you have extra time.
+### Local development
 
-### Bonus
+1. Run `npm run dev` – this uses `tsx` to watch and reload.  
+2. Start `ngrok http 3000` (or similar) so Twilio can reach your machine.  
+3. Update the number in the Twilio console: **Voice & Fax → A CALL COMES IN** → `https://<ngrok-host>/twilio/voice` (POST).  
+4. Call your Twilio number, test option 1 and option 2, then check `/calls` for the logged entry.
 
-- Use Typescript
-- Use NestJS or any other node.js framework
-- Use [OpenAPI/Swagger Docs](https://swagger.io/solutions/api-documentation/) to document your APIs
+### Production build
 
-### Use case
+```bash
+npm run build
+npm start
+```
 
-The use case we want to reproduce is the following:
+TypeScript outputs to `dist/` and the plain Node runtime serves the same Fastify instance.
 
-- A customer is calling the main number of your company;
-- If the caller presses `1`, the call is redirected on your personal phone\*. You should be able to pickup and talk with the caller.
-- If the caller presses `2`, he can drop a voicemail (you would like to hear this message later);
-- The call has to be logged in the database;
-- An activity feed, listing all calls, should be displayed: status of the call, duration, link to an audio file if the caller dropped a voicemail plus other info you have in mind.
+## API surface
 
-### Main steps
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/health` | Simple health probe |
+| `POST` | `/twilio/voice` | Entry point Twilio hits for new inbound calls |
+| `POST` | `/twilio/voice/handle` | Called by Twilio after the IVR `Gather` completes |
+| `POST` | `/twilio/voice/dial-action` | Twilio callback with the result of the forwarding attempt |
+| `POST` | `/twilio/voice/voicemail` | Voicemail recording metadata |
+| `GET` | `/calls` | Activity feed (latest calls, durations, recording links, etc.) |
 
-Here are some steps to help you start:
+Swagger UI (with request/response examples) lives at [`http://localhost:3000/docs`](http://localhost:3000/docs). Replace `localhost` with your tunnel host when testing with Twilio.
 
-- [ ] Create a Twilio account and read carefully the API doc.
+## Data notes
 
-- [ ] Buy a Number on Twilio and try to call it.
+- Call logs are stored in `data/calls.db` using NeDB’s file-backed datastore.  
+- Each record keeps the SID, caller / callee numbers, digits pressed, forwarding status, durations, and voicemail recording metadata (URL + length).  
+- This keeps the assessment lightweight, but for a real system I’d swap to PostgreSQL/MySQL so we can query and aggregate more efficiently.
 
-- [ ] Create an `Application` and Twilio tools you will use for calls.
+## Manual test plan
 
-- [ ] Create the `Call` model in order to store data about calls.
+1. `npm run build` – type check + compile.  
+2. `npm run dev` – start Fastify locally.  
+3. Fire up an ngrok tunnel and refresh Twilio’s webhook.  
+4. Call the Twilio number:  
+   - Press **1** and confirm the forward target rings.  
+   - Press **2**, leave a quick voicemail, note the recording URL in `/calls`.  
+5. Review `/calls` (or `GET /calls` via Swagger) to confirm the entries look right.
 
-- [ ] Forward incoming calls according to the previous strategies.
+## TODOs / next steps if I kept working
 
+- Replace NeDB with a proper relational store (and add migrations).  
+- Wire up automated tests (`vitest`/`supertest`) for both the webhook flow and the `/calls` endpoint.  
+- Sign Twilio requests (`X-Twilio-Signature`) before trusting the payload in production.  
+- Deploy to a small container or serverless environment, keeping the ngrok tunnel only for local iteration.
 
-
-## Code Submit
-Please organize, design, test and document your code as if it were going into production, create a loom video and send us a [pull request](https://opensource.com/article/19/7/create-pull-request-github). 
-
-We will review it and get back to you in order to talk about your code! 
+That’s it! If you have any trouble running the project, ping me and I’ll walk you through it.
